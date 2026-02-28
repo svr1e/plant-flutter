@@ -200,8 +200,8 @@ def generate_with_groq(system_prompt: str, user_prompt: str) -> Optional[str]:
 
 # ── Model download from Hugging Face ──────────────────────────────────────────
 HF_MODEL_REPO       = os.getenv("HF_MODEL_REPO")          # e.g. "svr1e/plant-models"
-HF_PLANT_MODEL_FILE = os.getenv("HF_PLANT_MODEL_FILE", "best_model.keras")
-HF_SOIL_MODEL_FILE  = os.getenv("HF_SOIL_MODEL_FILE",  "final_soil_model.keras")
+HF_PLANT_MODEL_FILE = os.getenv("HF_PLANT_MODEL_FILE", "best_model.h5")
+HF_SOIL_MODEL_FILE  = os.getenv("HF_SOIL_MODEL_FILE",  "final_soil_model.h5")
 
 def download_model_if_needed(filename: str) -> Optional[str]:
     """Download a model file from Hugging Face if it doesn't exist locally."""
