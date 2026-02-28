@@ -227,6 +227,7 @@ def download_model_if_needed(filename: str) -> Optional[str]:
 
 # Load TensorFlow models (downloads from HF if not present)
 model = None
+model_load_error = None
 try:
     plant_model_path = download_model_if_needed(HF_PLANT_MODEL_FILE)
     if plant_model_path:
@@ -235,9 +236,12 @@ try:
     else:
         print("⚠️  Plant disease model unavailable — /predict will return 503")
 except Exception as e:
+    import traceback
+    model_load_error = traceback.format_exc()
     print(f"⚠️  Plant disease model load failed: {e}")
     model = None
 
+soil_model_error = None
 soil_model = None
 try:
     soil_model_path = download_model_if_needed(HF_SOIL_MODEL_FILE)
@@ -247,6 +251,8 @@ try:
     else:
         print("⚠️  Soil model unavailable — /soil/predict will return 503")
 except Exception as e:
+    import traceback
+    soil_model_error = traceback.format_exc()
     print(f"⚠️  Soil model load failed: {e}")
     soil_model = None
 
@@ -746,6 +752,17 @@ async def root():
             "mongodb": db is not None,
             "gemini_ai": gemini_model is not None
         }
+    }
+
+@app.get("/debug-models")
+async def debug_models():
+    """Return errors describing why models failed to load"""
+    return {
+        "plant_model_is_loaded": model is not None,
+        "plant_model_error": model_load_error,
+        "soil_model_is_loaded": soil_model is not None,
+        "soil_model_error": soil_model_error,
+        "hf_model_repo": HF_MODEL_REPO
     }
 
 # Authentication Routes
