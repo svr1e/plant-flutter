@@ -228,12 +228,28 @@ def download_model_if_needed(filename: str) -> Optional[str]:
         print(f"⚠️  Failed to download {filename}: {e}")
         return None
 
+def build_soil_model_architecture():
+    """
+    Rebuild the soil model architecture to load weights if full model config is missing.
+    Adjust this to match your exact MobileNetV2 architecture.
+    """
+    base_model = tf.keras.applications.MobileNetV2(
+        input_shape=(224, 224, 3), 
+        include_top=False, 
+        weights=None
+    )
+    x = tf.keras.layers.GlobalAveragePooling2D()(base_model.output)
+    x = tf.keras.layers.Dense(128, activation='relu')(x)
+    output = tf.keras.layers.Dense(4, activation='softmax')(x) # Adjust '4' to your actual soil classes
+    return tf.keras.models.Model(inputs=base_model.input, outputs=output)
+
 # Load TensorFlow models (downloads from HF if not present)
 model = None
 model_load_error = None
 try:
     plant_model_path = download_model_if_needed(HF_PLANT_MODEL_FILE)
     if plant_model_path:
+        # Option 1: Load full model with compile=False to avoid input mismatch
         model = tf.keras.models.load_model(plant_model_path, compile=False)
         print("✅ Loaded plant disease model")
     else:
@@ -249,8 +265,18 @@ soil_model = None
 try:
     soil_model_path = download_model_if_needed(HF_SOIL_MODEL_FILE)
     if soil_model_path:
-        soil_model = tf.keras.models.load_model(soil_model_path, compile=False)
-        print("✅ Loaded soil model")
+        try:
+            # Try loading as full model first
+            soil_model = tf.keras.models.load_model(soil_model_path, compile=False)
+            print("✅ Loaded full soil model")
+        except Exception as e:
+            if "No model config found" in str(e):
+                print("🔄 Soil model config missing, attempting to load as weights-only...")
+                soil_model = build_soil_model_architecture()
+                soil_model.load_weights(soil_model_path)
+                print("✅ Loaded soil model weights into architecture")
+            else:
+                raise e
     else:
         print("⚠️  Soil model unavailable — /soil/predict will return 503")
 except Exception as e:
