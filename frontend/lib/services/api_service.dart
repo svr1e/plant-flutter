@@ -16,7 +16,7 @@ class ApiService {
   final Logger _logger = Logger();
   
   // Set this to true for production deployment
-  static const bool _isProduction = true;
+  static const bool _isProduction = false;
   
   // Replace with your deployed backend URL (e.g., https://your-app.onrender.com)
   static const String _prodUrl = 'https://plant-flutter.onrender.com';

@@ -879,6 +879,40 @@ async def predict(file: UploadFile = File(...), current_user: User = Depends(get
     """
     try:
         if model is None:
+            # Fallback: Try to use Gemini for prediction if model is not loaded
+            if gemini_model:
+                print("⚠️ Model missing. Falling back to Gemini for prediction...")
+                try:
+                    # Read image contents
+                    contents = await file.read()
+                    image = Image.open(io.BytesIO(contents))
+                    
+                    # Generate content with Gemini
+                    response = await gemini_model.generate_content_async([
+                        "Identify the plant and the disease in this image. Respond with a JSON object containing 'plant', 'disease', and 'confidence' (0.0 to 1.0).",
+                        image
+                    ])
+                    
+                    text = response.text.strip()
+                    # Basic JSON extraction
+                    start = text.find("{")
+                    end = text.rfind("}")
+                    if start != -1 and end != -1:
+                        data = json.loads(text[start:end+1])
+                        plant = data.get("plant", "Unknown")
+                        disease = data.get("disease", "Unknown")
+                        confidence = data.get("confidence", 0.9)
+                        
+                        return {
+                            "plant": plant,
+                            "disease": disease,
+                            "confidence": confidence,
+                            "is_healthy": "healthy" in disease.lower(),
+                            "source": "AI_FALLBACK"
+                        }
+                except Exception as e:
+                    print(f"Gemini fallback failed: {e}")
+            
             raise HTTPException(status_code=503, detail="Plant disease model not available on server")
 
         # Read image contents first to validate with PIL
