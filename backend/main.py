@@ -234,7 +234,7 @@ model_load_error = None
 try:
     plant_model_path = download_model_if_needed(HF_PLANT_MODEL_FILE)
     if plant_model_path:
-        model = tf.keras.models.load_model(plant_model_path)
+        model = tf.keras.models.load_model(plant_model_path, compile=False)
         print("✅ Loaded plant disease model")
     else:
         print("⚠️  Plant disease model unavailable — /predict will return 503")
@@ -249,7 +249,7 @@ soil_model = None
 try:
     soil_model_path = download_model_if_needed(HF_SOIL_MODEL_FILE)
     if soil_model_path:
-        soil_model = tf.keras.models.load_model(soil_model_path)
+        soil_model = tf.keras.models.load_model(soil_model_path, compile=False)
         print("✅ Loaded soil model")
     else:
         print("⚠️  Soil model unavailable — /soil/predict will return 503")
@@ -1666,4 +1666,5 @@ async def add_post_comment(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
