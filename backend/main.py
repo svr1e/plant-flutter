@@ -28,19 +28,6 @@ from plant_care_service import PlantCareService
 from community_models import CommunityPostResponse, CommunityPostCreate, CommunityCommentCreate, CommunityFeedResponse
 from community_service import CommunityService
 
-import logging
-
-# Configure Logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("backend.log")
-    ]
-)
-logger = logging.getLogger("plant-diagnosis-api")
-
 # Load environment variables
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
@@ -55,27 +42,14 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events"""
     global mongodb_client, db
     try:
-        # Optimized MongoDB client with connection pooling
-        mongodb_client = AsyncIOMotorClient(
-            MONGODB_URL,
-            maxPoolSize=50,
-            minPoolSize=10,
-            maxIdleTimeMS=60000,
-            connectTimeoutMS=5000,
-            serverSelectionTimeoutMS=5000
-        )
+        mongodb_client = AsyncIOMotorClient(MONGODB_URL)
         db = mongodb_client.plant_diagnosis
         # Test connection
         await mongodb_client.admin.command('ping')
-        logger.info("✅ Connected to MongoDB successfully")
-        
-        # Ensure indexes exist for faster queries
-        await db.users.create_index("username", unique=True)
-        await db.users.create_index("email", unique=True)
-        logger.info("✅ Database indexes verified")
+        print("✅ Connected to MongoDB successfully")
     except Exception as e:
-        logger.error(f"⚠️  MongoDB connection failed: {e}")
-        logger.warning("History features will be disabled")
+        print(f"⚠️  MongoDB connection failed: {e}")
+        print("   History features will be disabled")
         db = None
     
     yield
@@ -83,7 +57,7 @@ async def lifespan(app: FastAPI):
     # Shutdown logic
     if mongodb_client:
         mongodb_client.close()
-        logger.info("🛑 MongoDB connection closed")
+        print("🛑 MongoDB connection closed")
 
 app = FastAPI(title="Plant Disease Diagnosis API", lifespan=lifespan)
 
@@ -205,7 +179,7 @@ def generate_with_groq(system_prompt: str, user_prompt: str) -> Optional[str]:
         res = conn.getresponse()
         data = res.read()
         if res.status != 200:
-            logger.error(f"Groq API error: {res.status} {data.decode(errors='ignore')}")
+            print(f"Groq API error: {res.status} {data.decode(errors='ignore')}")
             return None
         parsed = json.loads(data.decode())
         choices = parsed.get("choices") or []
@@ -221,7 +195,7 @@ def generate_with_groq(system_prompt: str, user_prompt: str) -> Optional[str]:
             content = "\n".join(parts)
         return content
     except Exception as e:
-        logger.error(f"Groq API exception: {e}")
+        print(f"Groq API exception: {e}")
         return None
 
 # ── Model download from Hugging Face ──────────────────────────────────────────
@@ -233,22 +207,22 @@ def download_model_if_needed(filename: str) -> Optional[str]:
     """Download a model file from Hugging Face if it doesn't exist locally."""
     local_path = BASE_DIR / filename
     if local_path.exists():
-        logger.info(f"✅ Model already present: {filename}")
+        print(f"✅ Model already present: {filename}")
         return str(local_path)
     if not HF_MODEL_REPO:
-        logger.warning(f"⚠️  HF_MODEL_REPO not set — cannot download {filename}")
+        print(f"⚠️  HF_MODEL_REPO not set — cannot download {filename}")
         return None
     try:
-        logger.info(f"⬇️  Downloading {filename} from Hugging Face repo '{HF_MODEL_REPO}'...")
+        print(f"⬇️  Downloading {filename} from Hugging Face repo '{HF_MODEL_REPO}'...")
         downloaded = hf_hub_download(
             repo_id=HF_MODEL_REPO,
             filename=filename,
             local_dir=str(BASE_DIR),
         )
-        logger.info(f"✅ Downloaded {filename} → {downloaded}")
+        print(f"✅ Downloaded {filename} → {downloaded}")
         return downloaded
     except Exception as e:
-        logger.error(f"⚠️  Failed to download {filename}: {e}")
+        print(f"⚠️  Failed to download {filename}: {e}")
         return None
 
 # Load TensorFlow models (downloads from HF if not present)
@@ -258,13 +232,13 @@ try:
     plant_model_path = download_model_if_needed(HF_PLANT_MODEL_FILE)
     if plant_model_path:
         model = tf.keras.models.load_model(plant_model_path)
-        logger.info("✅ Loaded plant disease model")
+        print("✅ Loaded plant disease model")
     else:
-        logger.warning("⚠️  Plant disease model unavailable — /predict will return 503")
+        print("⚠️  Plant disease model unavailable — /predict will return 503")
 except Exception as e:
     import traceback
     model_load_error = traceback.format_exc()
-    logger.error(f"⚠️  Plant disease model load failed: {e}")
+    print(f"⚠️  Plant disease model load failed: {e}")
     model = None
 
 soil_model_error = None
@@ -273,13 +247,13 @@ try:
     soil_model_path = download_model_if_needed(HF_SOIL_MODEL_FILE)
     if soil_model_path:
         soil_model = tf.keras.models.load_model(soil_model_path)
-        logger.info("✅ Loaded soil model")
+        print("✅ Loaded soil model")
     else:
-        logger.warning("⚠️  Soil model unavailable — /soil/predict will return 503")
+        print("⚠️  Soil model unavailable — /soil/predict will return 503")
 except Exception as e:
     import traceback
     soil_model_error = traceback.format_exc()
-    logger.error(f"⚠️  Soil model load failed: {e}")
+    print(f"⚠️  Soil model load failed: {e}")
     soil_model = None
 
 # Comprehensive class labels for plant diseases
@@ -551,22 +525,16 @@ Each value should be 2-4 sentences. Respond with JSON only.
                 timeout=25.0
             )
             text = response.text.strip()
-            # Handle potential markdown code blocks
-            if "```json" in text:
-                text = text.split("```json")[1].split("```")[0].strip()
-            elif "```" in text:
-                text = text.split("```")[1].split("```")[0].strip()
-
             start = text.find("{")
             end = text.rfind("}")
             if start != -1 and end != -1 and end > start:
                 text = text[start:end + 1]
             data = json.loads(text)
         except asyncio.TimeoutError:
-            logger.warning(f"Gemini treatment guide timeout for {plant} {disease}")
+            print(f"Gemini treatment guide timeout for {plant} {disease}")
             data = None
         except Exception as e:
-            logger.error(f"Gemini treatment guide error: {e}")
+            print(f"Gemini treatment guide error: {e}")
             data = None
     
     if data is None:
@@ -679,12 +647,6 @@ No extra text.
                 timeout=25.0
             )
             text = response.text.strip()
-            # Handle potential markdown code blocks
-            if "```json" in text:
-                text = text.split("```json")[1].split("```")[0].strip()
-            elif "```" in text:
-                text = text.split("```")[1].split("```")[0].strip()
-
             raw_text = text
             start = text.find("{")
             end = text.rfind("}")
@@ -695,12 +657,12 @@ No extra text.
                 if isinstance(parsed, dict):
                     data = parsed
             except Exception:
-                logger.error("Gemini AI summary JSON parse error, falling back to raw text")
+                print("Gemini AI summary JSON parse error, falling back to raw text")
         except asyncio.TimeoutError:
-            logger.warning(f"Gemini AI summary timeout for {plant} {disease}")
+            print(f"Gemini AI summary timeout for {plant} {disease}")
             data = None
         except Exception as e:
-            logger.error(f"Gemini AI summary error: {e}")
+            print(f"Gemini AI summary error: {e}")
             data = None
             
     if data is None:
@@ -773,10 +735,10 @@ async def get_gemini_insights(plant: str, disease: str, is_healthy: bool, confid
         )
         return response.text
     except asyncio.TimeoutError:
-        logger.warning(f"Gemini insights timeout for {plant} {disease}")
+        print(f"Gemini insights timeout for {plant} {disease}")
         return None
     except Exception as e:
-        logger.error(f"Gemini API error: {e}")
+        print(f"Gemini API error: {e}")
         return None
 
 @app.get("/")
@@ -832,8 +794,9 @@ async def signup(user: UserCreate):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Signup failed for {user.username}: {e}")
-        raise HTTPException(status_code=500, detail="Registration failed")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
 @app.post("/token", response_model=Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
@@ -916,40 +879,6 @@ async def predict(file: UploadFile = File(...), current_user: User = Depends(get
     """
     try:
         if model is None:
-            # Fallback: Try to use Gemini for prediction if model is not loaded
-            if gemini_model:
-                logger.info("⚠️ Model missing. Falling back to Gemini for prediction...")
-                try:
-                    # Read image contents
-                    contents = await file.read()
-                    image = Image.open(io.BytesIO(contents))
-                    
-                    # Generate content with Gemini
-                    response = await gemini_model.generate_content_async([
-                        "Identify the plant and the disease in this image. Respond with a JSON object containing 'plant', 'disease', and 'confidence' (0.0 to 1.0).",
-                        image
-                    ])
-                    
-                    text = response.text.strip()
-                    # Basic JSON extraction
-                    start = text.find("{")
-                    end = text.rfind("}")
-                    if start != -1 and end != -1:
-                        data = json.loads(text[start:end+1])
-                        plant = data.get("plant", "Unknown")
-                        disease = data.get("disease", "Unknown")
-                        confidence = data.get("confidence", 0.9)
-                        
-                        return {
-                            "plant": plant,
-                            "disease": disease,
-                            "confidence": confidence,
-                            "is_healthy": "healthy" in disease.lower(),
-                            "source": "AI_FALLBACK"
-                        }
-                except Exception as e:
-                    logger.error(f"Gemini fallback failed: {e}")
-            
             raise HTTPException(status_code=503, detail="Plant disease model not available on server")
 
         # Read image contents first to validate with PIL
@@ -1057,10 +986,9 @@ async def predict(file: UploadFile = File(...), current_user: User = Depends(get
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Prediction failed for {current_user.username}: {e}")
         raise HTTPException(
             status_code=500,
-            detail="Internal server error during prediction"
+            detail=f"Prediction failed: {str(e)}"
         )
 
 def _fetch_weather_summary(lat: float, lon: float):
@@ -1092,7 +1020,7 @@ def _fetch_weather_summary(lat: float, lon: float):
             "period_days": 90,
         }
     except Exception as e:
-        logger.error(f"⚠️  Weather fetch failed: {e}")
+        print(f"⚠️  Weather fetch failed: {e}")
         return None
 
 def _fallback_crop_recommendations(soil: str, weather: Optional[dict]):
@@ -1150,7 +1078,7 @@ async def get_weather_alerts(lat: float, lon: float, current_user: User = Depend
         
         if not data or "current" not in data:
             error_msg = data.get("error", {}).get("info", "Unknown weather API error")
-            logger.error(f"Weatherstack error: {error_msg}")
+            print(f"Weatherstack error: {error_msg}")
             return {"success": False, "message": "Could not fetch weather data"}
 
         current = data["current"]
@@ -1228,7 +1156,7 @@ async def get_weather_alerts(lat: float, lon: float, current_user: User = Depend
         }
         
     except Exception as e:
-        logger.error(f"Weather alert error: {e}")
+        print(f"Weather alert error: {e}")
         return {"success": False, "message": str(e)}
 
 @app.post("/soil/predict")
@@ -1349,8 +1277,7 @@ async def soil_predict(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Soil prediction failed: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error during soil prediction")
+        raise HTTPException(status_code=500, detail=f"Soil prediction failed: {str(e)}")
 
 @app.post("/history")
 async def save_history(data: dict, current_user: User = Depends(get_current_user)):
@@ -1370,8 +1297,7 @@ async def save_history(data: dict, current_user: User = Depends(get_current_user
             "id": str(result.inserted_id)
         }
     except Exception as e:
-        logger.error(f"Failed to save history for {current_user.username}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to save diagnosis history")
+        raise HTTPException(status_code=500, detail=f"Failed to save history: {str(e)}")
 
 @app.get("/history")
 async def get_history(limit: int = 50, skip: int = 0, current_user: User = Depends(get_current_user)):
@@ -1393,8 +1319,7 @@ async def get_history(limit: int = 50, skip: int = 0, current_user: User = Depen
             "history": history
         }
     except Exception as e:
-        logger.error(f"Failed to get history for {current_user.username}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve history")
+        raise HTTPException(status_code=500, detail=f"Failed to get history: {str(e)}")
 
 @app.delete("/history/{id}")
 async def delete_history(id: str, current_user: User = Depends(get_current_user)):
@@ -1413,8 +1338,7 @@ async def delete_history(id: str, current_user: User = Depends(get_current_user)
         else:
             raise HTTPException(status_code=404, detail="History item not found or unauthorized")
     except Exception as e:
-        logger.error(f"Failed to delete history item {id} for {current_user.username}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to delete history item")
+        raise HTTPException(status_code=500, detail=f"Failed to delete history: {str(e)}")
 
 @app.get("/dashboard/stats")
 async def get_dashboard_stats(current_user: User = Depends(get_current_user)):
@@ -1466,8 +1390,7 @@ async def get_dashboard_stats(current_user: User = Depends(get_current_user)):
             }
         }
     except Exception as e:
-        logger.error(f"Failed to get dashboard stats for {current_user.username}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve dashboard statistics")
+        raise HTTPException(status_code=500, detail=f"Failed to get stats: {str(e)}")
 
 # Plant Care Scheduler Endpoints
 @app.post("/plant-care", response_model=PlantCareResponse)
@@ -1491,8 +1414,7 @@ async def create_plant_care(
         
         return PlantCareService.create_response(plant_care_doc)
     except Exception as e:
-        logger.error(f"Failed to create plant care for {current_user.username}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to create plant care schedule")
+        raise HTTPException(status_code=500, detail=f"Failed to create plant care: {str(e)}")
 
 @app.get("/plant-care", response_model=PlantCareListResponse)
 async def get_plant_care_list(
@@ -1510,8 +1432,7 @@ async def get_plant_care_list(
         
         return PlantCareListResponse(plants=plant_cares, total=len(plant_cares))
     except Exception as e:
-        logger.error(f"Failed to get plant care list for {current_user.username}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve plant care schedules")
+        raise HTTPException(status_code=500, detail=f"Failed to get plant care: {str(e)}")
 
 @app.get("/plant-care/today", response_model=TodayTasksResponse)
 async def get_today_tasks(
@@ -1536,8 +1457,7 @@ async def get_today_tasks(
             message=message
         )
     except Exception as e:
-        logger.error(f"Failed to get today's tasks for {current_user.username}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve today's tasks")
+        raise HTTPException(status_code=500, detail=f"Failed to get today tasks: {str(e)}")
 
 @app.get("/plant-care/{plant_care_id}", response_model=PlantCareResponse)
 async def get_plant_care(
@@ -1560,8 +1480,7 @@ async def get_plant_care(
         
         return PlantCareService.create_response(doc)
     except Exception as e:
-        logger.error(f"Failed to get plant care {plant_care_id} for {current_user.username}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve plant care schedule")
+        raise HTTPException(status_code=500, detail=f"Failed to get plant care: {str(e)}")
 
 @app.put("/plant-care/{plant_care_id}", response_model=PlantCareResponse)
 async def update_plant_care(
@@ -1599,8 +1518,7 @@ async def update_plant_care(
         
         return PlantCareService.create_response(updated_doc)
     except Exception as e:
-        logger.error(f"Failed to update plant care {plant_care_id} for {current_user.username}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to update plant care schedule")
+        raise HTTPException(status_code=500, detail=f"Failed to update plant care: {str(e)}")
 
 @app.post("/plant-care/{plant_care_id}/mark-action", response_model=PlantCareResponse)
 async def mark_care_action(
@@ -1642,8 +1560,7 @@ async def mark_care_action(
         
         return updated_plant_care
     except Exception as e:
-        logger.error(f"Failed to mark action for plant care {plant_care_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to mark care action")
+        raise HTTPException(status_code=500, detail=f"Failed to mark action: {str(e)}")
 
 @app.delete("/plant-care/{plant_care_id}")
 async def delete_plant_care(
@@ -1667,8 +1584,7 @@ async def delete_plant_care(
         
         return {"success": True, "message": "Plant care deleted successfully"}
     except Exception as e:
-        logger.error(f"Failed to delete plant care {plant_care_id} for {current_user.username}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to delete plant care schedule")
+        raise HTTPException(status_code=500, detail=f"Failed to delete plant care: {str(e)}")
 
 # Community Endpoints
 @app.post("/community/posts", response_model=CommunityPostResponse)
@@ -1691,35 +1607,26 @@ async def create_community_post(
         post_doc = await CommunityService.create_post(db, current_user.username, post, image_url)
         return CommunityService.create_response(post_doc, current_user.username)
     except Exception as e:
-        logger.error(f"Failed to create community post for {current_user.username}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to create community post")
+        raise HTTPException(status_code=500, detail=f"Failed to create post: {str(e)}")
 
 @app.get("/community/posts", response_model=CommunityFeedResponse)
 async def get_community_feed(
-    limit: int = 20,
-    skip: int = 0,
     current_user: User = Depends(get_current_user)
 ):
-    """Get the community feed (paginated)"""
+    """Get the community feed (all posts)"""
     if db is None:
         raise HTTPException(status_code=503, detail="Database not available")
     
     try:
         posts = []
-        # Find all posts, sorted by newest first with pagination
-        # Optimize query by using a projection if needed, but here we need all fields
-        cursor = db.community_posts.find().sort("created_at", -1).skip(skip).limit(limit)
+        # Find all posts, sorted by newest first
+        cursor = db.community_posts.find().sort("created_at", -1)
         async for doc in cursor:
             posts.append(CommunityService.create_response(doc, current_user.username))
         
-        # count_documents is generally efficient, but for very large collections, 
-        # consider estimated_document_count() if exact count isn't needed.
-        total_posts = await db.community_posts.count_documents({})
-        
-        return CommunityFeedResponse(posts=posts, total=total_posts)
+        return CommunityFeedResponse(posts=posts, total=len(posts))
     except Exception as e:
-        logger.error(f"Failed to get community feed: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve community feed")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch feed: {str(e)}")
 
 @app.post("/community/posts/{post_id}/like")
 async def toggle_post_like(
@@ -1734,8 +1641,7 @@ async def toggle_post_like(
         is_liked = await CommunityService.toggle_like(db, post_id, current_user.username)
         return {"liked": is_liked}
     except Exception as e:
-        logger.error(f"Failed to toggle like on post {post_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to toggle like")
+        raise HTTPException(status_code=500, detail=f"Failed to toggle like: {str(e)}")
 
 @app.post("/community/posts/{post_id}/comments")
 async def add_post_comment(
@@ -1753,8 +1659,7 @@ async def add_post_comment(
             raise HTTPException(status_code=404, detail="Post not found")
         return new_comment
     except Exception as e:
-        logger.error(f"Failed to add comment to post {post_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to add comment")
+        raise HTTPException(status_code=500, detail=f"Failed to add comment: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
