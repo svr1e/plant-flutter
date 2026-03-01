@@ -16,12 +16,12 @@ class ApiService {
   final Logger _logger = Logger();
   
   // Set this to true for production deployment
-  static const bool _isProduction = false;
+  static const bool _isProduction = true;
   
   // Replace with your deployed backend URL (e.g., https://your-app.onrender.com)
   static const String _prodUrl = 'https://plant-flutter.onrender.com';
   
-  static const String _hostIp = 'localhost';
+  static const String _hostIp = '10.0.2.2';
   
   static String get baseUrl {
     if (_isProduction) {
@@ -31,9 +31,9 @@ class ApiService {
     if (kIsWeb) {
       return 'http://localhost:8000';
     } else if (Platform.isAndroid) {
-      return _hostIp == 'localhost' ? 'http://10.0.2.2:8000' : 'http://$_hostIp:8000';
+      return 'http://10.0.2.2:8000';
     } else {
-      return 'http://$_hostIp:8000';
+      return 'http://localhost:8000';
     }
   }
   
@@ -88,6 +88,9 @@ class ApiService {
     try {
       final response = await http.post(
         url,
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
         body: {
           'username': username,
           'password': password,
