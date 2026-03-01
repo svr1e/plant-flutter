@@ -30,4 +30,4 @@ COPY . .
 EXPOSE 8000
 
 # Command to run — Render overrides this via startCommand in render.yaml
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "gunicorn -k uvicorn.workers.UvicornWorker main:app --workers 1 --timeout 120 --bind 0.0.0.0:${PORT:-8000}"]
